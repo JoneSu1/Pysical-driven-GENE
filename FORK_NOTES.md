@@ -24,7 +24,15 @@
   factor 0.5 patience 5）| `"cosine"`（CosineAnnealingLR T_max=epochs）。
 - `metrics.csv` 每轮多记一列 `lr`，调度行为可审计。
 
-### 4. `quickstart.py` — `QuickStart.train()` 透传 `target_transform` / `balance_stratify`。
+### 4. `quickstart.py` — `QuickStart.train()` 透传 `target_transform` / `balance_stratify` / `val_chrom` / `val_exclusion_bp`。
+
+### 5. `preprocess.py` — val/test 拆分增强（commit d7b526a）
+- `val_chrom="chr7"`（等）：整条染色体作验证集——early stopping/模型选择与 chr2 test
+  一样测跨染色体泛化（原版 val = train 同染色体随机 15%，只测插值）。
+  `val_chrom="chr2"` 被拒绝（与 test 冲突）。**不推荐** chr2 前后半段切 val/test：
+  同染色体 Mb 尺度染色质强相关，val 会通过模型选择间接偏向 chr2，稀释 test 的泛化语义。
+- `val_exclusion_bp=600`（仅随机 val 模式）：剔除与任何 val 窗口距离 <N bp 的 train 窗口，
+  堵上 600bp resize cCRE 的窗口重叠泄漏；merge+searchsorted 精确实现。默认 0 = 上游。
 
 ### 5. `tests/test_mech_changes.py` — 合成数据验证
 dropout 生效、rf 255/511（6 层）、6 层前向、分层平衡精确 1:1 + 短缺保全局 1:1、
