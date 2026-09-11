@@ -129,7 +129,9 @@ class QuickStart:
               target_reg_col="target_reg",
               rc_aug=True,
               target_transform=None,
-              balance_stratify=None):
+              balance_stratify=None,
+              val_chrom=None,
+              val_exclusion_bp=0):
         """
         Compiles training data and executes the Trainer. 
         The best model is automatically saved by the Trainer class.
@@ -138,6 +140,10 @@ class QuickStart:
           target_transform : None | "log1p" — log1p-compress the regression
                              target (and threshold, same space; labels unchanged).
           balance_stratify : None | "chrom" — per-stratum 1:1 negative balancing.
+          val_chrom        : None | e.g. "chr7" — whole-chromosome validation
+                             holdout (test stays chr2).
+          val_exclusion_bp : int — drop train windows this close to any val
+                             window (random-val mode only).
         """
         if self.model is None:
             raise ValueError("Model not defined. Call define_model() first.")
@@ -167,6 +173,8 @@ class QuickStart:
             rc_aug=rc_aug,
             target_transform=target_transform,
             balance_stratify=balance_stratify,
+            val_chrom=val_chrom,
+            val_exclusion_bp=val_exclusion_bp,
         )
         
         train_model(

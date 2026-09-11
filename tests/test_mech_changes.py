@@ -21,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import torch
 from deepISA.modeling.cnn import Conv
-from deepISA.modeling.preprocess import _balance_and_label, compile_training_data
+from deepISA.modeling.preprocess import (_balance_and_label,
+                                         _subtract_window_proximity,
+                                         compile_training_data)
 from deepISA.modeling.trainer import Trainer
 
 
@@ -121,9 +123,35 @@ def test_trainer_weight_decay_and_scheduler():
     print("PASS trainer: weight_decay/plateau/cosine OK, defaults = upstream")
 
 
+def test_val_split_options():
+    # val_chrom 拒绝 chr2（与 test 冲突）
+    try:
+        compile_training_data(pd.DataFrame(), fasta_path=None, out_dir=None,
+                              val_chrom="chr2")
+    except ValueError as e:
+        assert "chr2" in str(e)
+    else:
+        raise AssertionError("val_chrom=chr2 not rejected")
+
+    # 重叠隔离带：val 窗口 [1000,1600)，exclusion 600 → [400,2200)
+    val = pd.DataFrame({"chrom": ["chr1"], "start": [1000], "end": [1600]})
+    train = pd.DataFrame({
+        "chrom": ["chr1", "chr1", "chr1", "chr2"],
+        "start": [0, 1500, 5000, 1000],      # 0: [0,600) 与 [400,2200) 重叠；1500 重叠；5000 不重叠
+        "end":   [600, 2100, 5600, 1600],     # chr2 不在 val 的染色体上 → 保留
+    })
+    out = _subtract_window_proximity(train, val, 600)
+    assert list(out["start"]) == [5000, 1000], out
+    # exclusion=0 语义 = 不动（由 compile 里的分支保证，这里直接测 helper 边界）
+    out0 = _subtract_window_proximity(train, val, 0)
+    assert list(out0["start"]) == [0, 5000, 1000], out0  # [0,600) 与 [1000,1600) 不相接 → 保留
+    print("PASS val split: chr2 rejected; ±600bp proximity exclusion exact")
+
+
 if __name__ == "__main__":
     test_cnn_dropout_and_rf()
     test_balance_stratified()
     test_transform_validation()
     test_trainer_weight_decay_and_scheduler()
+    test_val_split_options()
     print("\nALL MECH TESTS PASSED")

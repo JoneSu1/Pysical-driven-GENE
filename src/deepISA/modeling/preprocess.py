@@ -116,6 +116,40 @@ def _write_memmap(df,
 
 
 
+def _subtract_window_proximity(train_df, val_df, exclusion_bp):
+    """mech: drop train windows whose (fixed-width) interval overlaps any val
+    window expanded by exclusion_bp on both sides.  Val intervals are merged
+    per chromosome first, so the searchsorted check is exact."""
+    keep = np.ones(len(train_df), dtype=bool)
+    for chrom, vsub in val_df.groupby("chrom"):
+        tmask = (train_df["chrom"] == chrom).values
+        if not tmask.any():
+            continue
+        # merge expanded val intervals
+        iv = sorted(zip((vsub["start"] - exclusion_bp).tolist(),
+                        (vsub["end"] + exclusion_bp).tolist()))
+        merged_s, merged_e = [], []
+        for s, e in iv:
+            if merged_s and s <= merged_e[-1]:
+                merged_e[-1] = max(merged_e[-1], e)
+            else:
+                merged_s.append(s)
+                merged_e.append(e)
+        ms = np.asarray(merged_s)
+        me = np.asarray(merged_e)
+        tidx = np.flatnonzero(tmask)
+        ts = train_df["start"].values[tidx]
+        te = train_df["end"].values[tidx]
+        j = np.searchsorted(ms, te, side="right") - 1     # last merged s < te
+        hit = (j >= 0) & (me[np.clip(j, 0, None)] > ts)
+        keep[tidx[hit]] = False
+    n_drop = int((~keep).sum())
+    if n_drop:
+        logger.info(f"val exclusion ±{exclusion_bp} bp: dropped {n_drop} "
+                    f"train windows overlapping val.")
+    return train_df[keep].copy()
+
+
 def compile_training_data(df, 
                           fasta_path,
                           out_dir,
@@ -127,7 +161,9 @@ def compile_training_data(df,
                           rc_aug=True,
                           chunk_size=8192,
                           target_transform=None,
-                          balance_stratify=None):
+                          balance_stratify=None,
+                          val_chrom=None,
+                          val_exclusion_bp=0):
     """
     Unified entry point for data. Handles three scenarios and returns a 
     standardized DataFrame with 'target_reg' and 'target_class'.
@@ -138,9 +174,24 @@ def compile_training_data(df,
                          so target_class labels are unchanged.
       balance_stratify : None | column name (e.g. "chrom") — passed to
                          _balance_and_label for per-stratum 1:1 balancing.
+      val_chrom        : None (default = upstream: random 85/15 within
+                         non-chr2 chromosomes) | chromosome name (e.g. "chr7")
+                         — hold out a whole chromosome as validation, so
+                         early stopping/model selection measure cross-
+                         chromosome generalization like the chr2 test set.
+      val_exclusion_bp : int, default 0 — only meaningful with the default
+                         random val split: drop train windows within this
+                         distance of any val window (600 closes the
+                         overlapping-window leakage from resized cCREs).
     """
     if target_transform not in (None, "log1p"):
         raise ValueError(f"Unsupported target_transform: {target_transform}")
+    if val_chrom is not None:
+        if val_chrom == "chr2":
+            raise ValueError("val_chrom must differ from the test holdout (chr2).")
+        if val_exclusion_bp:
+            logger.info("val_chrom set: val_exclusion_bp is unnecessary "
+                        "(different chromosomes cannot overlap).")
     df = df.copy()
     df = resize_regions(df, seq_len)
     fasta = bf.load_fasta(fasta_path)
@@ -183,9 +234,19 @@ def compile_training_data(df,
     # --- Chromosome Holdout Split (chr2) ---
     test_df = df[df['chrom'] == 'chr2'].copy()
     train_val_pool = df[df['chrom'] != 'chr2'].copy()
-    # 85/15 random split for the remaining chromosomes
-    train_df = train_val_pool.sample(frac=0.85, random_state=random_state).copy()
-    val_df = train_val_pool.drop(train_df.index)
+    if val_chrom is not None:
+        # mech: whole-chromosome validation holdout
+        val_df = train_val_pool[train_val_pool['chrom'] == val_chrom].copy()
+        train_df = train_val_pool[train_val_pool['chrom'] != val_chrom].copy()
+        logger.info(f"val_chrom={val_chrom}: val={len(val_df):,} "
+                    f"train={len(train_df):,} test(chr2)={len(test_df):,}")
+    else:
+        # 85/15 random split for the remaining chromosomes
+        train_df = train_val_pool.sample(frac=0.85, random_state=random_state).copy()
+        val_df = train_val_pool.drop(train_df.index)
+        if val_exclusion_bp > 0:
+            train_df = _subtract_window_proximity(train_df, val_df,
+                                                  val_exclusion_bp)
 
     # 4. Write three separate memmap folders
     for name, split_df in [("train", train_df), ("val", val_df), ("test", test_df)]:
