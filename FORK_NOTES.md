@@ -40,13 +40,20 @@
 **注意**：v1 的 pos-only Pearson 0.844 是在"阳性+背景"混合集上算的，含分离成分、偏高；
 纯阳性臂的 within-positive Pearson 预期更低但更真实，两者不可直接比。
 
-### 7. `tests/test_mech_changes.py` — 合成数据验证
+### 8. 可复现种子（commit 84fbffa）
+此前只有数据拆分/抽样有 random_state=42，模型初始化、batch 洗牌、dropout 无种子——
+重跑同 notebook 得到不同模型。现在：utils.set_seed(seed)（random/np/torch/cuda/cudnn deterministic）；
+define_model(seed=) 固定权重初始化；trainer_config["seed"] 在 train() 开始时固定洗牌/dropout 流。
+同 seed 两次初始化权重逐位一致（已测）。注意 cudnn.deterministic 会损失少量训练速度。
+**已存模型（v1、run2、v3 首发、v3b）都是无种子训练的，不可逐位复现；v3c 起带种子。**
+
+### 8. `tests/test_mech_changes.py` — 合成数据验证
 dropout 生效、rf 255/511（6 层）、6 层前向、分层平衡精确 1:1 + 短缺保全局 1:1、
 默认路径与上游一致、非法参数拒绝、val 拆分/隔离带、balance=False 端到端。
 运行（本地 CPU 即可，pyBigWig 打桩）：
 
 ```
-python tests/test_mech_changes.py   # 期望 6× PASS
+python tests/test_mech_changes.py   # 期望 7× PASS
 ```
 
 ## 架构说明：感受野扩展不需要改代码
