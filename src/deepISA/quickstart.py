@@ -104,7 +104,8 @@ class QuickStart:
     def define_model(self, 
                      model_config=None,
                      model_obj=None, 
-                     mode='dual'):
+                     mode='dual',
+                     seed=None):        # mech: 固定权重初始化 RNG
         """
         Internalizes a model. 
         Pass a pre-instantiated object (e.g. AlphaGenome) OR 
@@ -115,6 +116,10 @@ class QuickStart:
             self.model = model_obj.to(self.device)
             logger.info("External model internalized successfully.")
         elif model_config is not None:
+            if seed is not None:
+                from deepISA.utils import set_seed
+                set_seed(seed)
+                logger.info(f'Seed set to {seed} before model init.')
             self.model_config = model_config 
             # Build the internal Conv class from provided cnn.py
             self.model = Conv(self.mode, self.model_config).to(self.device) 

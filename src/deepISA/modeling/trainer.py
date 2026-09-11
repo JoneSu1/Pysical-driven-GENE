@@ -34,6 +34,7 @@ class Trainer:
         self.min_delta = trainer_config.get("min_delta", 0.001)
         self.save_one_fourth = trainer_config.get("save_one_fourth", False)
         self.save_one = trainer_config.get("save_one", False)
+        self.seed = trainer_config.get("seed", None)  # mech
         self.counter = 0
         # mech: lr scheduler stepped on val pearson ("plateau") or per-epoch ("cosine")
         sched_name = trainer_config.get("lr_scheduler", None)
@@ -211,6 +212,11 @@ class Trainer:
 
     def train(self):
         """Main execution loop."""
+        # mech: seed batch shuffling & dropout RNG streams
+        if self.seed is not None:
+            from deepISA.utils import set_seed
+            set_seed(self.seed)
+            logger.info(f'Trainer seed set to {self.seed} (shuffle/dropout).')
         for epoch in range(self.epochs):
             train_loss = self._train_one_epoch(epoch)
             # Validation pass (No longer takes train_loss)

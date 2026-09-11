@@ -200,6 +200,26 @@ def test_balance_skip_endtoend(tmp_path=None):
           "default still balances; chr7/chr2 splits OK")
 
 
+
+def test_seed_reproducibility():
+    from deepISA.utils import set_seed
+    cfg = dict(seq_len=600, ks=[15,9,9,9,9], cs=[64]*5, ds=[1,2,4,8,16], dropout=0.1)
+    set_seed(42); m1 = Conv(mode='dual', model_config=cfg)
+    set_seed(42); m2 = Conv(mode='dual', model_config=cfg)
+    set_seed(7);  m3 = Conv(mode='dual', model_config=cfg)
+    same = all(torch.equal(a, b) for a, b in zip(m1.state_dict().values(),
+                                                 m2.state_dict().values()))
+    diff = any(not torch.equal(a, b) for a, b in zip(m1.state_dict().values(),
+                                                     m3.state_dict().values()))
+    assert same and diff, 'seed reproducibility failed'
+    # trainer seed 接收
+    with tempfile.TemporaryDirectory() as td:
+        t = Trainer(m1, 'dual', None, None, None, torch.device('cpu'), td,
+                    {'seed': 42})
+        assert t.seed == 42
+    print('PASS seed: same-seed weights identical, different-seed differ, trainer accepts seed')
+
+
 if __name__ == "__main__":
     test_cnn_dropout_and_rf()
     test_balance_stratified()
@@ -207,4 +227,5 @@ if __name__ == "__main__":
     test_trainer_weight_decay_and_scheduler()
     test_val_split_options()
     test_balance_skip_endtoend()
+    test_seed_reproducibility()
     print("\nALL MECH TESTS PASSED")

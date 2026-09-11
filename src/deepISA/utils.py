@@ -7,6 +7,21 @@ import sys
 import pyBigWig
 from pathlib import Path
 
+import random
+
+
+def set_seed(seed):
+    """mech: seed python/numpy/torch(+cuda) RNGs for reproducible init,
+    shuffling and dropout. cudnn deterministic trades some speed for
+    run-to-run bitwise reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 
 import bioframe as bf
