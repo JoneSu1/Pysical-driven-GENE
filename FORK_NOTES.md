@@ -1,10 +1,10 @@
 # deepISA mech 分支说明（FORK_NOTES）
 
 > 基线：upstream `anderssonlab/deepISA` @ `34a52cc`（2026-05-26，v1 全部模型训练所用代码）。
-> 本分支 = 最小差量 fork：默认参数下行为与上游逐位一致，所有新增能力都是 config 开关。
+> 本分支（main）= 最小差量 fork：默认参数下行为与上游逐位一致，所有新增能力都是 config 开关。
 > 许可证注意：上游无 LICENSE 文件，公开 push 前建议先请上游补许可证（或保持 private）。
 
-## 与上游的差异（git diff 34a52cc..mech 可见全部）
+## 与上游的差异（git diff 34a52cc..main 可见全部）
 
 ### 1. `cnn.py` — dropout 配置修复（bug fix）
 上游 `getattr(model_config, 'dropout', 0.1)` 对 dict 永远回退 0.1，配置的 dropout 从不生效
@@ -54,7 +54,7 @@ converged notebook 的 Cell 3 两行替换即可：
 
 ```python
 !git clone https://github.com/<你的用户名>/deepISA.git {DEEPISA_DIR}
-!cd {DEEPISA_DIR} && git checkout mech   # 或打 tag 后 checkout tag
+!cd {DEEPISA_DIR} && git checkout main   # 或打 tag 后 checkout tag
 ```
 
 之后 Cell 7.5 补丁格整个删除，训练调用改为：
