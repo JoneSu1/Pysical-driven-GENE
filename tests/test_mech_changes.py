@@ -148,10 +148,63 @@ def test_val_split_options():
     print("PASS val split: chr2 rejected; ±600bp proximity exclusion exact")
 
 
+def test_balance_skip_endtoend(tmp_path=None):
+    """Scenario 1 (pre-quantified) + balance=False：_balance_and_label 不被调用，
+    拆分/memmap 正常；chr7 作 val、chr2 作 test。"""
+    import deepISA.modeling.preprocess as prep
+
+    rng = np.random.default_rng(1)
+    n = 600
+    df = pd.DataFrame({
+        "chrom": rng.choice(["chr1", "chr2", "chr7"], size=n),
+        "start": rng.integers(0, 9000, n),
+        "sig": rng.random(n) * 5,
+    })
+    df["end"] = df["start"] + 600
+    df["target_reg"] = df["sig"]
+
+    # 打桩：fasta 用随机序列字典；_balance_and_label 被调用即失败
+    fake_fasta = {c: "".join(rng.choice(list("ACGT"), 20000))
+                  for c in ["chr1", "chr2", "chr7"]}
+    orig_load, orig_bal = prep.bf.load_fasta, prep._balance_and_label
+    prep.bf.load_fasta = lambda *a, **k: fake_fasta
+    def _boom(*a, **k):
+        raise AssertionError("_balance_and_label must not be called when balance=False")
+    prep._balance_and_label = _boom
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            out = prep.compile_training_data(
+                df, fasta_path="fake", out_dir=td, seq_len=600,
+                target_reg_col="target_reg", rc_aug=False,
+                balance=False, val_chrom="chr7")
+            assert len(out) == n
+            for split, chroms in [("train", {"chr1"}), ("val", {"chr7"}),
+                                  ("test", {"chr2"})]:
+                meta = pd.read_json(Path(td) / split / "metadata.json",
+                                    typ="series")
+                assert int(meta["X"][0]) > 0
+            # 再确认默认 balance=True 仍会调用（用原版函数放回并打桩计数）
+            calls = {"n": 0}
+            def _count(*a, **k):
+                calls["n"] += 1
+                return a[0]
+            prep._balance_and_label = _count
+            prep.compile_training_data(
+                df, fasta_path="fake", out_dir=td, seq_len=600,
+                target_reg_col="target_reg", rc_aug=False)
+            assert calls["n"] == 1
+    finally:
+        prep.bf.load_fasta = orig_load
+        prep._balance_and_label = orig_bal
+    print("PASS balance=False: end-to-end compile, balance skipped; "
+          "default still balances; chr7/chr2 splits OK")
+
+
 if __name__ == "__main__":
     test_cnn_dropout_and_rf()
     test_balance_stratified()
     test_transform_validation()
     test_trainer_weight_decay_and_scheduler()
     test_val_split_options()
+    test_balance_skip_endtoend()
     print("\nALL MECH TESTS PASSED")

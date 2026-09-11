@@ -163,7 +163,8 @@ def compile_training_data(df,
                           target_transform=None,
                           balance_stratify=None,
                           val_chrom=None,
-                          val_exclusion_bp=0):
+                          val_exclusion_bp=0,
+                          balance=True):
     """
     Unified entry point for data. Handles three scenarios and returns a 
     standardized DataFrame with 'target_reg' and 'target_class'.
@@ -183,6 +184,12 @@ def compile_training_data(df,
                          random val split: drop train windows within this
                          distance of any val window (600 closes the
                          overlapping-window leakage from resized cCREs).
+      balance          : bool, default True — mech: False skips
+                         _balance_and_label entirely (no negative
+                         downsampling, no background filler).  Intended for
+                         pure-positive regression arms (mode="regression"),
+                         where background filler zeros would otherwise be
+                         ~half of every batch.
     """
     if target_transform not in (None, "log1p"):
         raise ValueError(f"Unsupported target_transform: {target_transform}")
@@ -227,9 +234,13 @@ def compile_training_data(df,
         raise ValueError("Data must have either bw_paths or a pre-existing signal column.")
 
     # --- Background Sampling & Balancing ---
-    bg_regions_path = get_data_resource("non_cCRE_non_blacklist_non_exon.bed")
-    bg_regions = bf.read_table(bg_regions_path, schema='bed',names=["chrom", "start", "end"])
-    df = _balance_and_label(df, bg_regions, seq_len, stratify_by=balance_stratify)
+    if balance:
+        bg_regions_path = get_data_resource("non_cCRE_non_blacklist_non_exon.bed")
+        bg_regions = bf.read_table(bg_regions_path, schema='bed',names=["chrom", "start", "end"])
+        df = _balance_and_label(df, bg_regions, seq_len, stratify_by=balance_stratify)
+    else:
+        logger.info("balance=False: skipping 1:1 balancing "
+                    f"({len(df):,} input regions kept as-is).")
     
     # --- Chromosome Holdout Split (chr2) ---
     test_df = df[df['chrom'] == 'chr2'].copy()

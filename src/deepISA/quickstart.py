@@ -131,7 +131,8 @@ class QuickStart:
               target_transform=None,
               balance_stratify=None,
               val_chrom=None,
-              val_exclusion_bp=0):
+              val_exclusion_bp=0,
+              balance=True):
         """
         Compiles training data and executes the Trainer. 
         The best model is automatically saved by the Trainer class.
@@ -144,6 +145,8 @@ class QuickStart:
                              holdout (test stays chr2).
           val_exclusion_bp : int — drop train windows this close to any val
                              window (random-val mode only).
+          balance          : False skips balancing (pure-positive regression
+                             arms with mode="regression").
         """
         if self.model is None:
             raise ValueError("Model not defined. Call define_model() first.")
@@ -175,6 +178,7 @@ class QuickStart:
             balance_stratify=balance_stratify,
             val_chrom=val_chrom,
             val_exclusion_bp=val_exclusion_bp,
+            balance=balance,
         )
         
         train_model(
