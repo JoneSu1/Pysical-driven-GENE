@@ -1,0 +1,62 @@
+# deepISA mech 分支说明（FORK_NOTES）
+
+> 基线：upstream `anderssonlab/deepISA` @ `34a52cc`（2026-05-26，v1 全部模型训练所用代码）。
+> 本分支 = 最小差量 fork：默认参数下行为与上游逐位一致，所有新增能力都是 config 开关。
+> 许可证注意：上游无 LICENSE 文件，公开 push 前建议先请上游补许可证（或保持 private）。
+
+## 与上游的差异（git diff 34a52cc..mech 可见全部）
+
+### 1. `cnn.py` — dropout 配置修复（bug fix）
+上游 `getattr(model_config, 'dropout', 0.1)` 对 dict 永远回退 0.1，配置的 dropout 从不生效
+（上游后来在 `f527785` 也修了同一处，修法相同）。
+影响：**2026-09-10 converged run2 设了 dropout=0.2 但实际按 0.1 训练**——跑数字时以 0.1 为准。
+
+### 2. `preprocess.py` — 两个新开关（compile_training_data）
+- `target_transform="log1p"`：对区域信号与 P99 噪声阈值在同一空间做 log1p
+  （单调变换 → target_class 标签与默认路径逐位一致；raw 标度 Pearson 不可跨标度直接比）。
+- `balance_stratify="chrom"`：负样本按染色体配额下采样（quota 取阳性的 chr 组成），
+  每层 pos:neg≈1:1；某 chr 阴性不足时全局随机补齐（真实 1kPa 数据短缺 ~3,011/88k，3.4%），
+  全局 1:1 始终成立。默认 `None` = 上游行为。
+
+### 3. `trainer.py` — 训练循环增强（trainer_config 新键，默认全关）
+- `weight_decay`（默认 0.0）进 Adam。
+- `lr_scheduler`: `None`（默认）| `"plateau"`（ReduceLROnPlateau mode=max，跟 val Pearson，
+  factor 0.5 patience 5）| `"cosine"`（CosineAnnealingLR T_max=epochs）。
+- `metrics.csv` 每轮多记一列 `lr`，调度行为可审计。
+
+### 4. `quickstart.py` — `QuickStart.train()` 透传 `target_transform` / `balance_stratify`。
+
+### 5. `tests/test_mech_changes.py` — 合成数据验证
+dropout 生效、rf 255/511（6 层）、6 层前向、分层平衡精确 1:1 + 短缺保全局 1:1、
+默认路径与上游一致、非法参数拒绝。运行（本地 CPU 即可，pyBigWig 打桩）：
+
+```
+python tests/test_mech_changes.py   # 期望 4× PASS
+```
+
+## 架构说明：感受野扩展不需要改代码
+
+`Conv` 的 ks/cs/ds 是任意长度 config 驱动的。默认 5 层 rf=255 < 600 输入窗。
+扩展只改 model_config，例如 6 层 `ds=[1,2,4,8,16,32]` → rf=511
+（已在测试中验证前向可用）。注意 `model_config.json` 随模型落盘，下游加载要按它来。
+
+## notebook 迁移（push 到个人 GitHub 后）
+
+converged notebook 的 Cell 3 两行替换即可：
+
+```python
+!git clone https://github.com/<你的用户名>/deepISA.git {DEEPISA_DIR}
+!cd {DEEPISA_DIR} && git checkout mech   # 或打 tag 后 checkout tag
+```
+
+之后 Cell 7.5 补丁格整个删除，训练调用改为：
+
+```python
+qs.train(trainer_config=trainer_config, bw_paths=bw_paths,
+         rc_aug=True, target_transform="log1p", balance_stratify="chrom")
+```
+
+## 合并上游更新的纪律
+
+上游在 ISA/discover 模块活跃演进；合并前先 `git diff` 审建模/预处理三个文件，
+本分支已动的文件合并冲突时以本分支语义为准（config 开关向后兼容）。

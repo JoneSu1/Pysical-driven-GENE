@@ -127,10 +127,17 @@ class QuickStart:
               trainer_config=None,
               bw_paths=None,
               target_reg_col="target_reg",
-              rc_aug=True):
+              rc_aug=True,
+              target_transform=None,
+              balance_stratify=None):
         """
         Compiles training data and executes the Trainer. 
         The best model is automatically saved by the Trainer class.
+
+        mech additions (defaults preserve upstream behaviour):
+          target_transform : None | "log1p" — log1p-compress the regression
+                             target (and threshold, same space; labels unchanged).
+          balance_stratify : None | "chrom" — per-stratum 1:1 negative balancing.
         """
         if self.model is None:
             raise ValueError("Model not defined. Call define_model() first.")
@@ -157,7 +164,9 @@ class QuickStart:
             seq_len=self.model_config['seq_len'],
             bw_paths=bw_paths,
             target_reg_col=target_reg_col,
-            rc_aug=rc_aug
+            rc_aug=rc_aug,
+            target_transform=target_transform,
+            balance_stratify=balance_stratify,
         )
         
         train_model(

@@ -21,8 +21,14 @@ from deepISA.utils import (
 
 def _balance_and_label(df, 
                        neg_pool_df, 
-                       seq_len):
-    """Labels data based on target_class and performs 1:1 balancing."""
+                       seq_len,
+                       stratify_by=None):
+    """Labels data based on target_class and performs 1:1 balancing.
+
+    mech: stratify_by (e.g. "chrom") downsamples negatives per stratum with
+    quotas matching the positives' stratum composition, so pos:neg is 1:1
+    within every stratum instead of only globally.
+    """
     positives = df[df['target_class'] == 1.0].copy()
     negatives = df[df['target_class'] == 0.0].copy()
     n_pos = len(positives)
@@ -35,6 +41,20 @@ def _balance_and_label(df,
         extra_negs = resize_regions(extra_negs, seq_len)
         extra_negs['target_reg'], extra_negs['target_class'] = 0.0, 0.0
         final_df = pd.concat([positives, negatives, extra_negs])
+    elif stratify_by is not None:
+        quota = positives[stratify_by].value_counts()
+        parts = []
+        for key, n in quota.items():
+            pool = negatives[negatives[stratify_by] == key]
+            parts.append(pool.sample(n=min(n, len(pool)), random_state=42))
+        neg_bal = pd.concat(parts)
+        short = n_pos - len(neg_bal)
+        if short > 0:
+            logger.warning(f"Stratified negatives short by {short}; topping up at random.")
+            rest = negatives.drop(neg_bal.index)
+            neg_bal = pd.concat([neg_bal, rest.sample(n=short, random_state=42)])
+        logger.info(f"Stratified negatives by '{stratify_by}' ({len(quota)} strata).")
+        final_df = pd.concat([positives, neg_bal])
     else:
         logger.info("Downsampling negatives to match positive count.")
         final_df = pd.concat([positives, negatives.sample(n=n_pos, random_state=42)])
@@ -105,11 +125,22 @@ def compile_training_data(df,
                           bw_paths=None,
                           random_state=42,
                           rc_aug=True,
-                          chunk_size=8192):
+                          chunk_size=8192,
+                          target_transform=None,
+                          balance_stratify=None):
     """
     Unified entry point for data. Handles three scenarios and returns a 
     standardized DataFrame with 'target_reg' and 'target_class'.
+
+    mech additions (defaults preserve upstream behaviour):
+      target_transform : None | "log1p" — applied to region signals AND the
+                         noise threshold in the same space; log1p is monotone,
+                         so target_class labels are unchanged.
+      balance_stratify : None | column name (e.g. "chrom") — passed to
+                         _balance_and_label for per-stratum 1:1 balancing.
     """
+    if target_transform not in (None, "log1p"):
+        raise ValueError(f"Unsupported target_transform: {target_transform}")
     df = df.copy()
     df = resize_regions(df, seq_len)
     fasta = bf.load_fasta(fasta_path)
@@ -121,6 +152,10 @@ def compile_training_data(df,
         signals, df = quantify_bw(df, bw_paths, seq_len)
         df['target_reg'] = signals
         threshold = estimate_noise_threshold(bw_paths, seq_len)
+        if target_transform == "log1p":
+            df['target_reg'] = np.log1p(df['target_reg'])
+            threshold = float(np.log1p(threshold))
+            logger.info("target_transform=log1p applied to signals and threshold.")
         logger.info(f"Setting threshold to {threshold:.4f}") 
         df['target_class'] = (df['target_reg'] > threshold).astype(float)
 
@@ -143,7 +178,7 @@ def compile_training_data(df,
     # --- Background Sampling & Balancing ---
     bg_regions_path = get_data_resource("non_cCRE_non_blacklist_non_exon.bed")
     bg_regions = bf.read_table(bg_regions_path, schema='bed',names=["chrom", "start", "end"])
-    df = _balance_and_label(df, bg_regions, seq_len)
+    df = _balance_and_label(df, bg_regions, seq_len, stratify_by=balance_stratify)
     
     # --- Chromosome Holdout Split (chr2) ---
     test_df = df[df['chrom'] == 'chr2'].copy()

@@ -22,7 +22,11 @@ class Trainer:
         self.test_dat = test_dat
         self.device = device
         self.model_dir = model_dir
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=trainer_config.get("learning_rate", 1e-3))
+        # mech: weight_decay + optional lr scheduler (defaults = upstream behaviour)
+        self.weight_decay = trainer_config.get("weight_decay", 0.0)
+        self.optimizer = torch.optim.Adam(
+            model.parameters(), lr=trainer_config.get("learning_rate", 1e-3),
+            weight_decay=self.weight_decay)
         # unpack trainer_config with defaults
         self.epochs = trainer_config.get("epochs", 10)
         self.batch_size = trainer_config.get("batch_size", 128)
@@ -31,6 +35,18 @@ class Trainer:
         self.save_one_fourth = trainer_config.get("save_one_fourth", False)
         self.save_one = trainer_config.get("save_one", False)
         self.counter = 0
+        # mech: lr scheduler stepped on val pearson ("plateau") or per-epoch ("cosine")
+        sched_name = trainer_config.get("lr_scheduler", None)
+        if sched_name == "plateau":
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, mode="max", factor=0.5, patience=5)
+        elif sched_name == "cosine":
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=self.epochs)
+        elif sched_name is None:
+            self.scheduler = None
+        else:
+            raise ValueError(f"Unsupported lr_scheduler: {sched_name}")
         # Loss functions
         self.reg_criterion = nn.MSELoss()
         self.clf_criterion = nn.BCEWithLogitsLoss()
@@ -199,6 +215,8 @@ class Trainer:
             train_loss = self._train_one_epoch(epoch)
             # Validation pass (No longer takes train_loss)
             val_m = self._validate()
+            # mech: record lr so schedule changes are visible in metrics.csv
+            val_m["lr"] = self.optimizer.param_groups[0]["lr"]
             # TODO： report in same line
             self._report_metrics("val", val_m, epoch=epoch)
             self._report_metrics("train", {"loss": train_loss}, epoch=epoch)
@@ -214,6 +232,14 @@ class Trainer:
                 if self.counter >= self.patience:
                     logger.info(f"Early stopping triggered after {self.patience} epochs without improvement.")
                     break
+
+            # mech: lr scheduler — plateau tracks val pearson, cosine steps per epoch
+            if self.scheduler is not None:
+                if isinstance(self.scheduler,
+                              torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    self.scheduler.step(current_score)
+                else:
+                    self.scheduler.step()
 
         # Final logic
         self._test()

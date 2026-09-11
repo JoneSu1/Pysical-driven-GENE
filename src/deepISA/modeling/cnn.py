@@ -39,7 +39,8 @@ class Conv(nn.Module):
             for i in range(len(self.ks))
         ])
         # 2. dropout layers
-        self.dropout = nn.Dropout(p=getattr(model_config, 'dropout', 0.1))
+        # mech: getattr on a dict always fell back to 0.1; honor the config value
+        self.dropout = nn.Dropout(p=model_config.get('dropout', 0.1))
         # 3. Task Heads
         self.regression_head = nn.Linear(flat_features, 1) 
         self.classification_head = nn.Linear(flat_features, 1) if mode=='dual' else None
