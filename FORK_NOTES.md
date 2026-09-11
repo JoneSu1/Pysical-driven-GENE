@@ -24,7 +24,7 @@
   factor 0.5 patience 5）| `"cosine"`（CosineAnnealingLR T_max=epochs）。
 - `metrics.csv` 每轮多记一列 `lr`，调度行为可审计。
 
-### 4. `quickstart.py` — `QuickStart.train()` 透传 `target_transform` / `balance_stratify` / `val_chrom` / `val_exclusion_bp`。
+### 4. `quickstart.py` — `QuickStart.train()` 透传 `target_transform` / `balance_stratify` / `val_chrom` / `val_exclusion_bp` / `balance`。
 
 ### 5. `preprocess.py` — val/test 拆分增强（commit d7b526a）
 - `val_chrom="chr7"`（等）：整条染色体作验证集——early stopping/模型选择与 chr2 test
@@ -34,12 +34,19 @@
 - `val_exclusion_bp=600`（仅随机 val 模式）：剔除与任何 val 窗口距离 <N bp 的 train 窗口，
   堵上 600bp resize cCRE 的窗口重叠泄漏；merge+searchsorted 精确实现。默认 0 = 上游。
 
-### 5. `tests/test_mech_changes.py` — 合成数据验证
+### 6. `preprocess.py`/`quickstart.py` — `balance=False`（commit c231572）
+跳过 1:1 平衡：发现 pos-only 臂的"阴性"实际 ~87k 个是背景填充零信号（extra_negs 分支），
+占一半 batch、使 BCE 头退化、稀释回归梯度。纯阳性臂用 `balance=False` + `mode="regression"`。
+**注意**：v1 的 pos-only Pearson 0.844 是在"阳性+背景"混合集上算的，含分离成分、偏高；
+纯阳性臂的 within-positive Pearson 预期更低但更真实，两者不可直接比。
+
+### 7. `tests/test_mech_changes.py` — 合成数据验证
 dropout 生效、rf 255/511（6 层）、6 层前向、分层平衡精确 1:1 + 短缺保全局 1:1、
-默认路径与上游一致、非法参数拒绝。运行（本地 CPU 即可，pyBigWig 打桩）：
+默认路径与上游一致、非法参数拒绝、val 拆分/隔离带、balance=False 端到端。
+运行（本地 CPU 即可，pyBigWig 打桩）：
 
 ```
-python tests/test_mech_changes.py   # 期望 4× PASS
+python tests/test_mech_changes.py   # 期望 6× PASS
 ```
 
 ## 架构说明：感受野扩展不需要改代码
